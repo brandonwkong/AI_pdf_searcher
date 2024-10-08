@@ -115,7 +115,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
               className="py-px cursor-pointer hover:bg-gray-100"
             >
               {highlight.content.text ? (
-                <blockquote className="text-sm font-bold line-clamp-3">
+                <blockquote className="text-sm font-bold line-clamp-3"
+                style={{ color: 'black' }}>
                   {highlight.content.text}
                 </blockquote>
               ) : null}
@@ -129,7 +130,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               ) : null}
               <div className="pl-auto w-full flow-root align-middle">
                 <div className="flex float-left m-auto pt-1">
-                  <p className="text-left text-sm italic">
+                  <p className="text-left text-sm italic" style={{ color: 'black' }}>
                     Page {highlight.position.pageNumber}
                   </p>
                 </div>

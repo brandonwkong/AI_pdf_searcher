@@ -18,8 +18,10 @@ import { createWorker } from "tesseract.js";
 // import { useSession } from "next-auth/react";
 import { getPdfId } from "../utils/pdfUtils";
 import { storageMethod } from "../utils/env";
+import { getNextId } from '../utils/pdfUtils';
 
 export default function App() {
+  const [selectedPdfFile, setSelectedPdfFile] = useState<File | null>(null);
   const [pdfUploaded, setPdfUploaded] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
   const [pdfUrl, setPdfUrl] = useState<string | null>(null);
@@ -32,12 +34,14 @@ export default function App() {
   const [loading, setLoading] = useState(false);
   const pdfViewerRef = useRef<any>(null);
   // const session = useSession();
-
+ 
   useEffect(() => {
     setHighlightsKey((prev) => prev + 1);
   }, [highlights]);
 
+
   const handleFileUpload = async (file: File) => {
+  setSelectedPdfFile(file);
     setLoading(true);
     let fileUrl = URL.createObjectURL(file);
     const pdfId = getPdfId(
@@ -89,7 +93,6 @@ export default function App() {
     setPdfId(pdfId);
     setLoading(false);
   };
-
   useEffect(() => {
     const getHighlights = async () => {
       if (!pdfName) {
@@ -158,7 +161,8 @@ export default function App() {
     if (pdfUrl && searchTerm) {
       const keywords = searchTerm.split("|");
       let currentZoom = 1;
-
+  
+      // Determine the current zoom level
       if (pdfViewerRef.current) {
         if ("scale" in pdfViewerRef.current) {
           currentZoom = pdfViewerRef.current.scale;
@@ -173,22 +177,24 @@ export default function App() {
           );
         }
       }
-
+  
       console.log("Current zoom level:", currentZoom);
-
+  
+      // Perform regular text search
       let newHighlights = await searchPdf(keywords, pdfUrl, currentZoom);
       if (newHighlights.length === 0 && pdfOcrUrl) {
-        // Try searching the OCR pdf
-        // This step is sometimes required due to the OCR process
-        //   possibly being lossy (pdf -> png -> pdf)
-        //   which means some words are missing/malformed
+        // Try searching the OCR pdf if no results in the original PDF
         newHighlights = await searchPdf(keywords, pdfOcrUrl, currentZoom);
       }
-
-      console.log("newHighlights:", JSON.stringify(newHighlights, null, 2));
-
+  
+      console.log("New text-based highlights:", JSON.stringify(newHighlights, null, 2));
+  
+      // Combine with the existing highlights
       const updatedHighlights = [...highlights, ...newHighlights];
-
+  
+      // Log the combined highlights before performing image search
+      console.log("Updated highlights before image search:", JSON.stringify(updatedHighlights, null, 2));
+  
       if (pdfName && pdfId) {
         const storedHighlights = updatedHighlights.map((highlight) =>
           IHighlightToStoredHighlight(highlight, pdfId)
@@ -200,17 +206,92 @@ export default function App() {
                 highlights: storedHighlights,
               }
             : storedHighlights;
+  
         await fetch("/api/highlight/update", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(body),
         });
       }
-
-      setHighlights(updatedHighlights);
+  
+      // Now perform the image search after the regular text search
+      try {
+        if (!selectedPdfFile) {
+          console.error("No PDF file selected for image search.");
+          return;
+        }
+        console.log("Performing image search");
+        console.log("Selected PDF file:", selectedPdfFile);
+  
+        const formData = new FormData();
+        formData.append("pdf", selectedPdfFile);
+        formData.append("user_input", searchTerm);
+  
+        const response = await fetch("http://localhost:5000/extract-images", {
+          method: "POST",
+          body: formData,
+        });
+  
+        console.log("Image search response status:", response.status); 
+  
+        if (!response.ok) {
+          const errorText = await response.text();
+          throw new Error(`HTTP error! Status: ${response.status}, Message: ${errorText}`);
+        }
+  
+        const imageSearchResult = await response.json();
+        if (Array.isArray(imageSearchResult)) {
+          imageSearchResult.forEach(result => {
+            const { coordinates } = result;
+  
+        if (coordinates) {
+          updatedHighlights.push({
+            content: { text: `${searchTerm}` },
+            position: {
+              boundingRect: {
+                x1: coordinates.x0,
+                y1: coordinates.y0,
+                x2: coordinates.x1,
+                y2: coordinates.y1,
+                width: coordinates.width,
+                height: coordinates.height,
+                pageNumber: coordinates.page,
+              },
+              rects: [
+                {
+                  x1: coordinates.x0,
+                  y1: coordinates.y0,
+                  x2: coordinates.x1,
+                  y2: coordinates.y1,
+                  width: coordinates.width,
+                  height: coordinates.height,
+                  pageNumber: coordinates.page,
+                },
+              ],
+              pageNumber: coordinates.page,
+            },
+            comment: { text: `Page ${coordinates.page} Search Result: ${searchTerm}`, emoji: "🖼️" },
+            id: getNextId(),
+          });
+  
+          console.log("Updated highlights after image match:", JSON.stringify(updatedHighlights, null, 2));
+        } else {
+          console.log("No coordinates found in image search result.");
+        }
+      });
+    } else {
+      console.log("Image search result is not an array."); 
     }
-  };
-
+  } catch (error) {
+    console.error("Error during image search:", error);
+  }
+  
+  console.log("Updated highlights before setting state:", JSON.stringify(updatedHighlights, null, 2));
+  setHighlights(updatedHighlights);
+      
+  }
+};
+  
   const parseIdFromHash = () => {
     return document.location.hash.slice("#highlight-".length);
   };

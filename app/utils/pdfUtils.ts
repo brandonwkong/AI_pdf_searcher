@@ -190,7 +190,8 @@ const processLine = (
  * Generates a unique ID for highlights
  * @returns A string representing a unique ID
  */
-const getNextId = () => String(Math.random()).slice(2);
+export const getNextId = () => String(Math.random()).slice(2);
+
 
 export const getPdfId = (pdfName: string, email?: string) =>
   email
